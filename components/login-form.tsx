@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -27,12 +26,11 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"form">)
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
-        options: {
-          emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || `${window.location.origin}/dashboard`,
-        },
       })
       if (error) throw error
-      router.push("/dashboard")
+
+      // Redirecionamento após login bem-sucedido
+      router.push(process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || "/dashboard")
       router.refresh()
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "Erro ao fazer login")
@@ -45,7 +43,9 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"form">)
     <form className={cn("flex flex-col gap-6", className)} {...props} onSubmit={handleLogin}>
       <div className="flex flex-col items-center gap-2 text-center">
         <h1 className="text-2xl font-bold">Entre na sua conta</h1>
-        <p className="text-muted-foreground text-sm text-balance">Digite seu email e senha para acessar</p>
+        <p className="text-muted-foreground text-sm text-balance">
+          Digite seu email e senha para acessar
+        </p>
       </div>
       <div className="grid gap-6">
         <div className="grid gap-3">
