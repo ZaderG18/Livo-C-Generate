@@ -29,9 +29,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"form">)
       })
       if (error) throw error
 
-      // Redirecionamento após login bem-sucedido
-      router.push(process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || "/dashboard")
-      router.refresh()
+      window.location.href = "/dashboard"
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "Erro ao fazer login")
     } finally {
@@ -43,9 +41,7 @@ export function LoginForm({ className, ...props }: React.ComponentProps<"form">)
     <form className={cn("flex flex-col gap-6", className)} {...props} onSubmit={handleLogin}>
       <div className="flex flex-col items-center gap-2 text-center">
         <h1 className="text-2xl font-bold">Entre na sua conta</h1>
-        <p className="text-muted-foreground text-sm text-balance">
-          Digite seu email e senha para acessar
-        </p>
+        <p className="text-muted-foreground text-sm text-balance">Digite seu email e senha para acessar</p>
       </div>
       <div className="grid gap-6">
         <div className="grid gap-3">

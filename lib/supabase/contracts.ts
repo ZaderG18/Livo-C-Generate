@@ -24,6 +24,18 @@ export interface CreateContractData {
   status?: string
 }
 
+export interface ContractFilters {
+  startDate?: string
+  endDate?: string
+  condominio?: string
+  status?: string
+}
+
+export interface ApiError extends Error {
+  code?: string
+  details?: unknown
+}
+
 // Get Supabase client
 function getSupabaseClient() {
   return createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
@@ -74,12 +86,7 @@ export async function deleteContract(id: string) {
 }
 
 // Filter contracts
-export async function filterContracts(filters: {
-  startDate?: string
-  endDate?: string
-  condominio?: string
-  status?: string
-}) {
+export async function filterContracts(filters: ContractFilters) {
   const supabase = getSupabaseClient()
   let query = supabase.from("contracts").select("*")
 

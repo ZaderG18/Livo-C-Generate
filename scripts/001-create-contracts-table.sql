@@ -12,29 +12,22 @@ CREATE TABLE IF NOT EXISTS contracts (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create index for faster queries
-CREATE INDEX IF NOT EXISTS idx_contracts_created_at ON contracts(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts(status);
-CREATE INDEX IF NOT EXISTS idx_contracts_condominio ON contracts(condominio);
+DROP POLICY IF EXISTS "Allow authenticated users to read contracts" ON contracts;
+DROP POLICY IF EXISTS "Allow authenticated users to insert contracts" ON contracts;
+DROP POLICY IF EXISTS "Allow authenticated users to update contracts" ON contracts;
 
--- Enable Row Level Security
-ALTER TABLE contracts ENABLE ROW LEVEL SECURITY;
-
--- Create policy to allow authenticated users to read all contracts
 CREATE POLICY "Allow authenticated users to read contracts"
   ON contracts
   FOR SELECT
   TO authenticated
   USING (true);
 
--- Create policy to allow authenticated users to insert contracts
 CREATE POLICY "Allow authenticated users to insert contracts"
   ON contracts
   FOR INSERT
   TO authenticated
   WITH CHECK (true);
 
--- Create policy to allow authenticated users to update contracts
 CREATE POLICY "Allow authenticated users to update contracts"
   ON contracts
   FOR UPDATE

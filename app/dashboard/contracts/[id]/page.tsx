@@ -11,6 +11,7 @@ import Link from "next/link"
 import { getContract, deleteContract, updateContract, type Contract } from "@/lib/supabase/contracts"
 import { useToast } from "@/hooks/use-toast"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ThemeToggle } from "@/components/theme-toggle"
 
 export default function ContractViewPage() {
   const [isLoading, setIsLoading] = useState(true)
@@ -109,7 +110,19 @@ export default function ContractViewPage() {
 
   const handleDownload = () => {
     if (contract?.pdf_url) {
-      window.open(contract.pdf_url, "_blank")
+      // Create a temporary anchor element to trigger download
+      const link = document.createElement("a")
+      link.href = contract.pdf_url
+      link.download = `contrato-${contract.condominio}-${contract.id}.pdf`
+      link.target = "_blank"
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+      toast({
+        title: "Download iniciado",
+        description: "O PDF do contrato está sendo baixado.",
+      })
     }
   }
 
@@ -180,6 +193,9 @@ export default function ContractViewPage() {
               <h1 className="text-xl font-bold">Detalhes do Contrato</h1>
               <p className="text-xs text-muted-foreground">Visualizar e gerenciar contrato</p>
             </div>
+          </div>
+          <div className="ml-auto">
+            <ThemeToggle />
           </div>
         </div>
       </header>

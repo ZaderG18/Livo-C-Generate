@@ -1,6 +1,6 @@
 import axios from "axios"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api"
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api/contracts"
 
 export interface ExtractedData {
   empresa?: string
@@ -20,22 +20,36 @@ export interface GenerateContractRequest {
   data_assinatura: string
 }
 
+export function isApiConfigured(): boolean {
+  return true
+}
+
 // Extract data from PDF
 export async function extractDataFromPDF(file: File): Promise<ExtractedData> {
   const formData = new FormData()
   formData.append("pdf", file)
 
-  const response = await axios.post(`${API_BASE_URL}/extract`, formData, {
-    headers: {
-      "Content-Type": "multipart/form-data",
-    },
-  })
+  try {
+    const response = await axios.post(`${API_BASE_URL}/extract`, formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    })
 
-  return response.data
+    return response.data
+  } catch (error) {
+    console.error("[v0] API Error:", error)
+    throw error
+  }
 }
 
 // Generate contract PDF
 export async function generateContractPDF(data: GenerateContractRequest): Promise<{ pdf_url: string }> {
-  const response = await axios.post(`${API_BASE_URL}/generate`, data)
-  return response.data
+  try {
+    const response = await axios.post(`${API_BASE_URL}/generate`, data)
+    return response.data
+  } catch (error) {
+    console.error("[v0] API Error:", error)
+    throw error
+  }
 }

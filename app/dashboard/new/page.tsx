@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { ArrowLeft, FileText } from "lucide-react"
 import Link from "next/link"
 import { ContractGenerationForm } from "@/components/contract-generation-form"
+import { ThemeToggle } from "@/components/theme-toggle"
 
 export default function NewContractPage() {
   const [isLoading, setIsLoading] = useState(true)
@@ -57,6 +58,9 @@ export default function NewContractPage() {
               <h1 className="text-xl font-bold">Novo Contrato</h1>
               <p className="text-xs text-muted-foreground">Gerar novo contrato</p>
             </div>
+          </div>
+          <div className="ml-auto">
+            <ThemeToggle />
           </div>
         </div>
       </header>

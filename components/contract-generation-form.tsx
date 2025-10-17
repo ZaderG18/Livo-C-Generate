@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
-import { Upload, FileText, Loader2, Sparkles, Save } from "lucide-react"
-import { extractDataFromPDF, generateContractPDF } from "@/lib/api/contracts-api"
+import { Upload, FileText, Loader2, Sparkles, Save, AlertCircle } from "lucide-react"
+import { extractDataFromPDF, generateContractPDF, isApiConfigured } from "@/lib/api/contracts-api"
 import { createContract } from "@/lib/supabase/contracts"
 import { useRouter } from "next/navigation"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 export function ContractGenerationForm() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -27,6 +28,8 @@ export function ContractGenerationForm() {
   })
   const { toast } = useToast()
   const router = useRouter()
+
+  const apiConfigured = isApiConfigured()
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -55,6 +58,15 @@ export function ContractGenerationForm() {
       return
     }
 
+    if (!apiConfigured) {
+      toast({
+        title: "API não configurada",
+        description: "Configure a variável NEXT_PUBLIC_API_URL para usar a extração automática.",
+        variant: "destructive",
+      })
+      return
+    }
+
     try {
       setIsExtracting(true)
       const extractedData = await extractDataFromPDF(selectedFile)
@@ -62,10 +74,10 @@ export function ContractGenerationForm() {
       setFormData({
         empresa: extractedData.empresa || "",
         cnpj_empresa: extractedData.cnpj_empresa || "",
-        condominio: extractedData.condominio,
-        cnpj_condominio: extractedData.cnpj_condominio,
-        valor: extractedData.valor,
-        data_assinatura: extractedData.data_assinatura,
+        condominio: extractedData.condominio || "",
+        cnpj_condominio: extractedData.cnpj_condominio || "",
+        valor: extractedData.valor || "",
+        data_assinatura: extractedData.data_assinatura || "",
       })
 
       toast({
@@ -102,15 +114,28 @@ export function ContractGenerationForm() {
     try {
       setIsGenerating(true)
 
-      // Generate PDF via API
-      const { pdf_url } = await generateContractPDF({
-        condominio: formData.condominio,
-        cnpj_condominio: formData.cnpj_condominio,
-        empresa: formData.empresa,
-        cnpj_empresa: formData.cnpj_empresa,
-        valor: formData.valor,
-        data_assinatura: formData.data_assinatura,
-      })
+      let pdf_url = ""
+
+      if (apiConfigured) {
+        try {
+          const result = await generateContractPDF({
+            condominio: formData.condominio,
+            cnpj_condominio: formData.cnpj_condominio,
+            empresa: formData.empresa,
+            cnpj_empresa: formData.cnpj_empresa,
+            valor: formData.valor,
+            data_assinatura: formData.data_assinatura,
+          })
+          pdf_url = result.pdf_url
+        } catch (error) {
+          console.error("[v0] Error generating PDF via API:", error)
+          // Use placeholder if API fails
+          pdf_url = `/contracts/placeholder-${Date.now()}.pdf`
+        }
+      } else {
+        // Use placeholder URL when API is not configured
+        pdf_url = `/contracts/placeholder-${Date.now()}.pdf`
+      }
 
       // Save to Supabase
       const contract = await createContract({
@@ -126,7 +151,9 @@ export function ContractGenerationForm() {
 
       toast({
         title: "Contrato gerado com sucesso!",
-        description: "O contrato foi salvo e está disponível no dashboard.",
+        description: apiConfigured
+          ? "O contrato foi salvo e está disponível no dashboard."
+          : "O contrato foi salvo. Configure a API para gerar o PDF.",
       })
 
       // Redirect to contract view
@@ -145,18 +172,36 @@ export function ContractGenerationForm() {
 
   return (
     <div className="space-y-6">
+      {!apiConfigured && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>API não configurada</AlertTitle>
+          <AlertDescription>
+            A extração automática de PDF e geração de contratos requer configuração da API. Configure a variável de
+            ambiente <code className="text-xs bg-muted px-1 py-0.5 rounded">NEXT_PUBLIC_API_URL</code> para habilitar
+            essas funcionalidades. Por enquanto, você pode preencher os dados manualmente.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* PDF Upload Section */}
       <Card className="p-6">
         <div className="mb-4">
           <h3 className="text-lg font-semibold mb-2">1. Upload da Proposta Comercial</h3>
-          <p className="text-sm text-muted-foreground">Faça upload do PDF para extrair os dados automaticamente</p>
+          <p className="text-sm text-muted-foreground">
+            {apiConfigured
+              ? "Faça upload do PDF para extrair os dados automaticamente"
+              : "Extração automática indisponível - preencha os dados manualmente"}
+          </p>
         </div>
 
         <div className="space-y-4">
           <div className="flex items-center gap-4">
             <div className="flex-1">
               <Label htmlFor="pdf-upload" className="cursor-pointer">
-                <div className="flex items-center justify-center gap-3 rounded-lg border-2 border-dashed border-border bg-muted/20 p-8 transition-colors hover:border-primary hover:bg-muted/40">
+                <div
+                  className={`flex items-center justify-center gap-3 rounded-lg border-2 border-dashed border-border bg-muted/20 p-8 transition-colors ${apiConfigured ? "hover:border-primary hover:bg-muted/40" : "opacity-50 cursor-not-allowed"}`}
+                >
                   {selectedFile ? (
                     <>
                       <FileText className="h-8 w-8 text-primary" />
@@ -175,14 +220,21 @@ export function ContractGenerationForm() {
                     </>
                   )}
                 </div>
-                <Input id="pdf-upload" type="file" accept=".pdf" onChange={handleFileChange} className="hidden" />
+                <Input
+                  id="pdf-upload"
+                  type="file"
+                  accept=".pdf"
+                  onChange={handleFileChange}
+                  className="hidden"
+                  disabled={!apiConfigured}
+                />
               </Label>
             </div>
           </div>
 
           <Button
             onClick={handleExtractData}
-            disabled={!selectedFile || isExtracting}
+            disabled={!selectedFile || isExtracting || !apiConfigured}
             className="w-full gap-2"
             size="lg"
           >

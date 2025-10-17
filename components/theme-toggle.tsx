@@ -8,6 +8,8 @@ export function ThemeToggle() {
   const [theme, setTheme] = useState<"light" | "dark">("dark")
 
   useEffect(() => {
+    if (typeof window === "undefined") return
+
     const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null
     const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches
 
@@ -17,6 +19,8 @@ export function ThemeToggle() {
   }, [])
 
   const toggleTheme = () => {
+    if (typeof window === "undefined") return
+
     const newTheme = theme === "light" ? "dark" : "light"
     setTheme(newTheme)
     localStorage.setItem("theme", newTheme)

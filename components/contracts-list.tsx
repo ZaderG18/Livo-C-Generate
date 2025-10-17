@@ -1,7 +1,13 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { listContracts, filterContracts, type Contract } from "@/lib/supabase/contracts"
+import {
+  listContracts,
+  filterContracts,
+  type Contract,
+  type ContractFilters,
+  type ApiError,
+} from "@/lib/supabase/contracts"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -30,12 +36,12 @@ export function ContractsList() {
       setDbError(false)
       const data = await listContracts()
       setContracts(data)
-    } catch (error: any) {
-      console.error("[v0] Error loading contracts:", error)
+    } catch (error) {
+      const err = error as ApiError
       if (
-        error?.message?.includes("Could not find the table") ||
-        error?.message?.includes("relation") ||
-        error?.message?.includes("does not exist")
+        err.message?.includes("Could not find the table") ||
+        err.message?.includes("relation") ||
+        err.message?.includes("does not exist")
       ) {
         setDbError(true)
       } else {
@@ -53,7 +59,7 @@ export function ContractsList() {
   const handleFilter = async () => {
     try {
       setIsLoading(true)
-      const filters: any = {}
+      const filters: ContractFilters = {}
 
       if (searchTerm) {
         filters.condominio = searchTerm
@@ -66,7 +72,6 @@ export function ContractsList() {
       const data = await filterContracts(filters)
       setContracts(data)
     } catch (error) {
-      console.error("[v0] Error filtering contracts:", error)
       toast({
         title: "Erro ao filtrar",
         description: "Não foi possível aplicar os filtros.",
