@@ -44,13 +44,15 @@ export default function ContractViewPage() {
   const loadContract = async () => {
     try {
       setIsLoading(true)
+      console.log("[v0] Loading contract with ID:", contractId)
       const data = await getContract(contractId)
+      console.log("[v0] Contract loaded successfully:", data)
       setContract(data)
     } catch (error) {
       console.error("[v0] Error loading contract:", error)
       toast({
         title: "Erro ao carregar contrato",
-        description: "Não foi possível carregar os dados do contrato.",
+        description: error instanceof Error ? error.message : "Não foi possível carregar os dados do contrato.",
         variant: "destructive",
       })
       router.push("/dashboard")
@@ -90,7 +92,9 @@ export default function ContractViewPage() {
 
     try {
       setIsDeleting(true)
+      console.log("[v0] Deleting contract with ID:", contract.id)
       await deleteContract(contract.id)
+      console.log("[v0] Contract deleted successfully")
       toast({
         title: "Contrato excluído",
         description: "O contrato foi excluído com sucesso.",
@@ -100,10 +104,9 @@ export default function ContractViewPage() {
       console.error("[v0] Error deleting contract:", error)
       toast({
         title: "Erro ao excluir",
-        description: "Não foi possível excluir o contrato.",
+        description: error instanceof Error ? error.message : "Não foi possível excluir o contrato.",
         variant: "destructive",
       })
-    } finally {
       setIsDeleting(false)
     }
   }

@@ -51,6 +51,7 @@
     "ejs": "latest",
     "embla-carousel-react": "8.5.1",
     "express": "latest",
+    "express-rate-limit": "latest",
     "fs": "latest",
     "geist": "^1.3.1",
     "input-otp": "1.4.1",

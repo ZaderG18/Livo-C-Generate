@@ -24,6 +24,7 @@ export default function SignUpPage() {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
+    console.log("[v0] Signup attempt started", { email })
 
     if (password !== confirmPassword) {
       setError("As senhas não coincidem")
@@ -35,16 +36,20 @@ export default function SignUpPage() {
     setError(null)
 
     try {
-      const { error } = await supabase.auth.signUp({
+      console.log("[v0] Calling signUp")
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: {
-          emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || `${window.location.origin}/dashboard`,
-        },
       })
+
+      console.log("[v0] Signup response", { data, error })
+
       if (error) throw error
+
+      console.log("[v0] Signup successful")
       setSuccess(true)
     } catch (error: unknown) {
+      console.error("[v0] Signup error:", error)
       setError(error instanceof Error ? error.message : "Erro ao criar conta")
     } finally {
       setIsLoading(false)

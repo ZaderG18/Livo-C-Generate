@@ -78,11 +78,18 @@ export async function updateContract(id: string, updates: Partial<CreateContract
 }
 
 // Delete contract
-export async function deleteContract(id: string) {
+export async function deleteContract(id: string): Promise<void> {
   const supabase = getSupabaseClient()
+
   const { error } = await supabase.from("contracts").delete().eq("id", id)
 
-  if (error) throw error
+  if (error) {
+    console.error("[v0] Delete contract error:", error)
+    const apiError = new Error(`Falha ao excluir contrato: ${error.message}`) as ApiError
+    apiError.code = error.code
+    apiError.details = error.details
+    throw apiError
+  }
 }
 
 // Filter contracts

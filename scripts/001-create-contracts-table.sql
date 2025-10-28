@@ -12,9 +12,11 @@ CREATE TABLE IF NOT EXISTS contracts (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Added DELETE policy to allow authenticated users to delete contracts
 DROP POLICY IF EXISTS "Allow authenticated users to read contracts" ON contracts;
 DROP POLICY IF EXISTS "Allow authenticated users to insert contracts" ON contracts;
 DROP POLICY IF EXISTS "Allow authenticated users to update contracts" ON contracts;
+DROP POLICY IF EXISTS "Allow authenticated users to delete contracts" ON contracts;
 
 CREATE POLICY "Allow authenticated users to read contracts"
   ON contracts
@@ -31,5 +33,11 @@ CREATE POLICY "Allow authenticated users to insert contracts"
 CREATE POLICY "Allow authenticated users to update contracts"
   ON contracts
   FOR UPDATE
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Allow authenticated users to delete contracts"
+  ON contracts
+  FOR DELETE
   TO authenticated
   USING (true);

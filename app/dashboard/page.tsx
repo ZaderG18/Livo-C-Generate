@@ -15,15 +15,33 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const checkAuth = async () => {
+      console.log("[v0] Checking authentication")
       const supabase = createClient()
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
 
-      if (!session) {
+      try {
+        const {
+          data: { session },
+          error,
+        } = await supabase.auth.getSession()
+
+        console.log("[v0] Auth check result", { session: !!session, error })
+
+        if (error) {
+          console.error("[v0] Auth check error:", error)
+          router.push("/")
+          return
+        }
+
+        if (!session) {
+          console.log("[v0] No session found, redirecting to login")
+          router.push("/")
+        } else {
+          console.log("[v0] Session found, user authenticated")
+          setIsLoading(false)
+        }
+      } catch (error) {
+        console.error("[v0] Auth check exception:", error)
         router.push("/")
-      } else {
-        setIsLoading(false)
       }
     }
 
@@ -31,8 +49,10 @@ export default function DashboardPage() {
   }, [router])
 
   const handleLogout = async () => {
+    console.log("[v0] Logout initiated")
     const supabase = createClient()
     await supabase.auth.signOut()
+    console.log("[v0] Logout complete, redirecting")
     router.push("/")
     router.refresh()
   }

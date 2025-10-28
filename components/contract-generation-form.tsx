@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -13,11 +12,13 @@ import { extractDataFromPDF, generateContractPDF, isApiConfigured } from "@/lib/
 import { createContract } from "@/lib/supabase/contracts"
 import { useRouter } from "next/navigation"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { contractFormSchema, formatCNPJ, normalizeMonetaryValue, type ContractFormData } from "@/lib/validation/schemas"
 
 export function ContractGenerationForm() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [isExtracting, setIsExtracting] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
   const [formData, setFormData] = useState({
     empresa: "",
     cnpj_empresa: "",
@@ -82,13 +83,13 @@ export function ContractGenerationForm() {
 
       toast({
         title: "Dados extraídos com sucesso!",
-        description: "Os campos foram preenchidos automaticamente.",
+        description: "Os campos foram preenchidos automaticamente. Verifique os dados antes de gerar.",
       })
     } catch (error) {
-      console.error("[v0] Error extracting data:", error)
+      const errorMessage = error instanceof Error ? error.message : "Erro desconhecido"
       toast({
         title: "Erro na extração",
-        description: "Não foi possível extrair os dados. Preencha manualmente.",
+        description: `Não foi possível extrair os dados: ${errorMessage}. Preencha manualmente.`,
         variant: "destructive",
       })
     } finally {
@@ -96,20 +97,45 @@ export function ContractGenerationForm() {
     }
   }
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
+  const handleInputChange = (field: keyof ContractFormData, value: string) => {
+    let processedValue = value
+
+    if (field === "cnpj_empresa" || field === "cnpj_condominio") {
+      processedValue = formatCNPJ(value)
+    }
+
+    setFormData((prev) => ({ ...prev, [field]: processedValue }))
+
+    if (validationErrors[field]) {
+      setValidationErrors((prev) => {
+        const newErrors = { ...prev }
+        delete newErrors[field]
+        return newErrors
+      })
+    }
   }
 
   const handleGenerateContract = async () => {
-    // Validate required fields
-    if (!formData.condominio || !formData.cnpj_condominio || !formData.valor || !formData.data_assinatura) {
+    const result = contractFormSchema.safeParse(formData)
+
+    if (!result.success) {
+      const errors: Record<string, string> = {}
+      result.error.errors.forEach((err) => {
+        if (err.path[0]) {
+          errors[err.path[0] as string] = err.message
+        }
+      })
+      setValidationErrors(errors)
+
       toast({
-        title: "Campos obrigatórios",
-        description: "Preencha todos os campos obrigatórios.",
+        title: "Erro de validação",
+        description: "Por favor, corrija os erros nos campos destacados.",
         variant: "destructive",
       })
       return
     }
+
+    setValidationErrors({})
 
     try {
       setIsGenerating(true)
@@ -123,27 +149,25 @@ export function ContractGenerationForm() {
             cnpj_condominio: formData.cnpj_condominio,
             empresa: formData.empresa,
             cnpj_empresa: formData.cnpj_empresa,
-            valor: formData.valor,
+            valor: normalizeMonetaryValue(formData.valor),
             data_assinatura: formData.data_assinatura,
           })
           pdf_url = result.pdf_url
         } catch (error) {
-          console.error("[v0] Error generating PDF via API:", error)
-          // Use placeholder if API fails
+          const errorMessage = error instanceof Error ? error.message : "Erro desconhecido"
+          console.error("[v0] Error generating PDF via API:", errorMessage)
           pdf_url = `/contracts/placeholder-${Date.now()}.pdf`
         }
       } else {
-        // Use placeholder URL when API is not configured
         pdf_url = `/contracts/placeholder-${Date.now()}.pdf`
       }
 
-      // Save to Supabase
       const contract = await createContract({
         condominio: formData.condominio,
         cnpj_condominio: formData.cnpj_condominio,
         empresa: formData.empresa,
         cnpj_empresa: formData.cnpj_empresa,
-        valor: formData.valor,
+        valor: normalizeMonetaryValue(formData.valor),
         data_assinatura: formData.data_assinatura,
         pdf_url,
         status: "generated",
@@ -156,13 +180,12 @@ export function ContractGenerationForm() {
           : "O contrato foi salvo. Configure a API para gerar o PDF.",
       })
 
-      // Redirect to contract view
       router.push(`/dashboard/contracts/${contract.id}`)
     } catch (error) {
-      console.error("[v0] Error generating contract:", error)
+      const errorMessage = error instanceof Error ? error.message : "Erro desconhecido"
       toast({
         title: "Erro ao gerar contrato",
-        description: "Não foi possível gerar o contrato. Tente novamente.",
+        description: `Não foi possível gerar o contrato: ${errorMessage}. Tente novamente.`,
         variant: "destructive",
       })
     } finally {
@@ -184,7 +207,6 @@ export function ContractGenerationForm() {
         </Alert>
       )}
 
-      {/* PDF Upload Section */}
       <Card className="p-6">
         <div className="mb-4">
           <h3 className="text-lg font-semibold mb-2">1. Upload da Proposta Comercial</h3>
@@ -253,7 +275,6 @@ export function ContractGenerationForm() {
         </div>
       </Card>
 
-      {/* Form Section */}
       <Card className="p-6">
         <div className="mb-6">
           <h3 className="text-lg font-semibold mb-2">2. Dados do Contrato</h3>
@@ -261,7 +282,6 @@ export function ContractGenerationForm() {
         </div>
 
         <div className="space-y-6">
-          {/* Empresa Section */}
           <div className="space-y-4">
             <h4 className="font-medium text-sm text-muted-foreground">Empresa (Opcional)</h4>
             <div className="grid gap-4 md:grid-cols-2">
@@ -273,6 +293,7 @@ export function ContractGenerationForm() {
                   value={formData.empresa}
                   onChange={(e) => handleInputChange("empresa", e.target.value)}
                 />
+                {validationErrors.empresa && <p className="text-sm text-destructive">{validationErrors.empresa}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="cnpj_empresa">CNPJ da Empresa</Label>
@@ -281,12 +302,15 @@ export function ContractGenerationForm() {
                   placeholder="00.000.000/0000-00"
                   value={formData.cnpj_empresa}
                   onChange={(e) => handleInputChange("cnpj_empresa", e.target.value)}
+                  className={validationErrors.cnpj_empresa ? "border-destructive" : ""}
                 />
+                {validationErrors.cnpj_empresa && (
+                  <p className="text-sm text-destructive">{validationErrors.cnpj_empresa}</p>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Condomínio Section */}
           <div className="space-y-4">
             <h4 className="font-medium text-sm text-muted-foreground">Condomínio *</h4>
             <div className="grid gap-4 md:grid-cols-2">
@@ -297,8 +321,12 @@ export function ContractGenerationForm() {
                   placeholder="Ex: Condomínio Residencial ABC"
                   value={formData.condominio}
                   onChange={(e) => handleInputChange("condominio", e.target.value)}
+                  className={validationErrors.condominio ? "border-destructive" : ""}
                   required
                 />
+                {validationErrors.condominio && (
+                  <p className="text-sm text-destructive">{validationErrors.condominio}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="cnpj_condominio">CNPJ do Condomínio</Label>
@@ -307,13 +335,16 @@ export function ContractGenerationForm() {
                   placeholder="00.000.000/0000-00"
                   value={formData.cnpj_condominio}
                   onChange={(e) => handleInputChange("cnpj_condominio", e.target.value)}
+                  className={validationErrors.cnpj_condominio ? "border-destructive" : ""}
                   required
                 />
+                {validationErrors.cnpj_condominio && (
+                  <p className="text-sm text-destructive">{validationErrors.cnpj_condominio}</p>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Contract Details */}
           <div className="space-y-4">
             <h4 className="font-medium text-sm text-muted-foreground">Detalhes do Contrato *</h4>
             <div className="grid gap-4 md:grid-cols-2">
@@ -324,8 +355,10 @@ export function ContractGenerationForm() {
                   placeholder="R$ 0,00"
                   value={formData.valor}
                   onChange={(e) => handleInputChange("valor", e.target.value)}
+                  className={validationErrors.valor ? "border-destructive" : ""}
                   required
                 />
+                {validationErrors.valor && <p className="text-sm text-destructive">{validationErrors.valor}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="data_assinatura">Data de Assinatura</Label>
@@ -334,15 +367,18 @@ export function ContractGenerationForm() {
                   type="date"
                   value={formData.data_assinatura}
                   onChange={(e) => handleInputChange("data_assinatura", e.target.value)}
+                  className={validationErrors.data_assinatura ? "border-destructive" : ""}
                   required
                 />
+                {validationErrors.data_assinatura && (
+                  <p className="text-sm text-destructive">{validationErrors.data_assinatura}</p>
+                )}
               </div>
             </div>
           </div>
         </div>
       </Card>
 
-      {/* Generate Button */}
       <Card className="p-6 bg-primary/5 border-primary/20">
         <div className="flex items-center justify-between">
           <div>

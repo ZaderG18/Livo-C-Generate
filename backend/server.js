@@ -9,6 +9,8 @@ import { readFile } from "fs/promises"
 import { fileURLToPath } from "url"
 import { dirname, join } from "path"
 import dotenv from "dotenv"
+import { z } from "zod"
+import rateLimit from "express-rate-limit"
 
 dotenv.config()
 
@@ -38,6 +40,26 @@ app.use(
 )
 app.use(express.json())
 
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: { error: "Muitas requisições, tente novamente mais tarde", code: "RATE_LIMIT_EXCEEDED" },
+})
+
+const contractDataSchema = z.object({
+  empresa: z.string().optional(),
+  cnpj_empresa: z
+    .string()
+    .optional()
+    .refine((val) => !val || /^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/.test(val), {
+      message: "CNPJ deve estar no formato XX.XXX.XXX/XXXX-XX",
+    }),
+  condominio: z.string().min(1, "Nome do condomínio é obrigatório"),
+  cnpj_condominio: z.string().regex(/^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/, "CNPJ inválido"),
+  valor: z.string().min(1, "Valor é obrigatório"),
+  data_assinatura: z.string().min(1, "Data de assinatura é obrigatória"),
+})
+
 // Função auxiliar para extrair dados do PDF usando regex
 function extractDataFromText(text) {
   const data = {
@@ -49,81 +71,188 @@ function extractDataFromText(text) {
     data_assinatura: "",
   }
 
-  // Regex para CNPJ (formato: XX.XXX.XXX/XXXX-XX)
-  const cnpjRegex = /\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/g
-  const cnpjs = text.match(cnpjRegex) || []
+  try {
+    const cnpjRegex = /\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/g
+    const cnpjs = text.match(cnpjRegex) || []
 
-  // Primeiro CNPJ encontrado é do condomínio, segundo é da empresa
-  if (cnpjs.length > 0) data.cnpj_condominio = cnpjs[0]
-  if (cnpjs.length > 1) data.cnpj_empresa = cnpjs[1]
+    // Format CNPJs properly
+    const formatCNPJ = (cnpj) => {
+      const numbers = cnpj.replace(/\D/g, "")
+      return numbers.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5")
+    }
 
-  // Regex para valores monetários (R$ X.XXX,XX)
-  const valorRegex = /R\$\s*(\d{1,3}(?:\.\d{3})*(?:,\d{2})?)/
-  const valorMatch = text.match(valorRegex)
-  if (valorMatch) data.valor = valorMatch[1]
+    const empresaKeywords = ["empresa", "prestadora", "contratada", "fornecedor"]
+    const condominioKeywords = ["condomínio", "contratante", "cliente"]
 
-  // Regex para datas (DD/MM/AAAA)
-  const dataRegex = /(\d{2}\/\d{2}\/\d{4})/
-  const dataMatch = text.match(dataRegex)
-  if (dataMatch) {
-    // Converter DD/MM/AAAA para AAAA-MM-DD
-    const [dia, mes, ano] = dataMatch[1].split("/")
-    data.data_assinatura = `${ano}-${mes}-${dia}`
+    // Try to identify which CNPJ belongs to which entity
+    for (const cnpj of cnpjs) {
+      const cnpjIndex = text.indexOf(cnpj)
+      const contextBefore = text.substring(Math.max(0, cnpjIndex - 100), cnpjIndex).toLowerCase()
+      const contextAfter = text.substring(cnpjIndex, Math.min(text.length, cnpjIndex + 100)).toLowerCase()
+      const context = contextBefore + contextAfter
+
+      if (empresaKeywords.some((keyword) => context.includes(keyword)) && !data.cnpj_empresa) {
+        data.cnpj_empresa = formatCNPJ(cnpj)
+      } else if (condominioKeywords.some((keyword) => context.includes(keyword)) && !data.cnpj_condominio) {
+        data.cnpj_condominio = formatCNPJ(cnpj)
+      } else if (!data.cnpj_condominio) {
+        data.cnpj_condominio = formatCNPJ(cnpj)
+      } else if (!data.cnpj_empresa) {
+        data.cnpj_empresa = formatCNPJ(cnpj)
+      }
+    }
+
+    const valorRegex = /R\$?\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)/gi
+    const valorMatches = text.match(valorRegex) || []
+    if (valorMatches.length > 0) {
+      // Get the largest value (likely the contract total)
+      const valores = valorMatches.map((v) => {
+        const num = v.replace(/[^\d,]/g, "").replace(",", ".")
+        return { original: v, numeric: Number.parseFloat(num) }
+      })
+      const maxValor = valores.reduce((max, curr) => (curr.numeric > max.numeric ? curr : max))
+      data.valor = maxValor.original.replace("R$", "").trim()
+    }
+
+    const dataRegex = /(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})/
+    const dataMatch = text.match(dataRegex)
+    if (dataMatch) {
+      const [, dia, mes, ano] = dataMatch
+      data.data_assinatura = `${ano}-${mes.padStart(2, "0")}-${dia.padStart(2, "0")}`
+    }
+
+    const condominioPatterns = [
+      /Condomínio\s+([A-Za-zÀ-ÿ0-9\s]+?)(?:\n|,|\.|\s{2,}|CNPJ)/i,
+      /Contratante:\s*([A-Za-zÀ-ÿ0-9\s]+?)(?:\n|,|\.|\s{2,}|CNPJ)/i,
+      /Cliente:\s*([A-Za-zÀ-ÿ0-9\s]+?)(?:\n|,|\.|\s{2,}|CNPJ)/i,
+    ]
+
+    for (const pattern of condominioPatterns) {
+      const match = text.match(pattern)
+      if (match && !data.condominio) {
+        data.condominio = match[1].trim()
+        break
+      }
+    }
+
+    const empresaPatterns = [
+      /(?:Empresa|Razão Social):\s*([A-Za-zÀ-ÿ0-9\s]+?)(?:\n|,|\.|\s{2,}|CNPJ)/i,
+      /Contratada:\s*([A-Za-zÀ-ÿ0-9\s]+?)(?:\n|,|\.|\s{2,}|CNPJ)/i,
+      /Prestadora:\s*([A-Za-zÀ-ÿ0-9\s]+?)(?:\n|,|\.|\s{2,}|CNPJ)/i,
+    ]
+
+    for (const pattern of empresaPatterns) {
+      const match = text.match(pattern)
+      if (match && !data.empresa) {
+        data.empresa = match[1].trim()
+        break
+      }
+    }
+  } catch (error) {
+    console.error("Erro durante extração:", error)
   }
-
-  // Tentar extrair nome do condomínio (procurar por "Condomínio" seguido de texto)
-  const condominioRegex = /Condomínio\s+([A-Za-zÀ-ÿ\s]+?)(?:\n|,|\.|\s{2,})/i
-  const condominioMatch = text.match(condominioRegex)
-  if (condominioMatch) data.condominio = condominioMatch[1].trim()
-
-  // Tentar extrair nome da empresa (procurar por "Empresa" ou "Razão Social")
-  const empresaRegex = /(?:Empresa|Razão Social):\s*([A-Za-zÀ-ÿ\s]+?)(?:\n|,|\.|\s{2,})/i
-  const empresaMatch = text.match(empresaRegex)
-  if (empresaMatch) data.empresa = empresaMatch[1].trim()
 
   return data
 }
 
 // Endpoint 1: Extração de dados do PDF
-app.post("/api/extract", upload.single("pdf"), async (req, res) => {
+app.post("/api/extract", apiLimiter, upload.single("pdf"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: "Nenhum arquivo PDF foi enviado" })
+      return res.status(400).json({
+        error: "Nenhum arquivo PDF foi enviado",
+        code: "NO_FILE",
+      })
     }
 
-    // Extrair texto do PDF
-    const pdfData = await pdfParse(req.file.buffer)
+    if (req.file.mimetype !== "application/pdf") {
+      return res.status(400).json({
+        error: "Apenas arquivos PDF são aceitos",
+        code: "INVALID_FILE_TYPE",
+      })
+    }
+
+    let pdfData
+    try {
+      pdfData = await pdfParse(req.file.buffer)
+    } catch (parseError) {
+      return res.status(400).json({
+        error: "Não foi possível processar o PDF. O arquivo pode estar protegido ou corrompido.",
+        code: "PDF_PARSE_ERROR",
+        details: parseError.message,
+      })
+    }
+
     const text = pdfData.text
 
-    // Extrair dados usando regex
+    if (!text || text.trim().length < 50) {
+      return res.status(400).json({
+        error: "O PDF não contém texto extraível. Pode ser baseado em imagem.",
+        code: "NO_TEXT_CONTENT",
+      })
+    }
+
     const extractedData = extractDataFromText(text)
 
-    res.json(extractedData)
+    const validationIssues = []
+    if (extractedData.cnpj_empresa && !/^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/.test(extractedData.cnpj_empresa)) {
+      validationIssues.push("CNPJ da empresa em formato inválido")
+    }
+    if (extractedData.cnpj_condominio && !/^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/.test(extractedData.cnpj_condominio)) {
+      validationIssues.push("CNPJ do condomínio em formato inválido")
+    }
+
+    res.json({
+      ...extractedData,
+      _validation_issues: validationIssues.length > 0 ? validationIssues : undefined,
+    })
   } catch (error) {
     console.error("Erro ao extrair dados do PDF:", error)
     res.status(500).json({
-      error: "Erro ao processar o PDF",
-      details: error.message,
+      error: "Erro interno ao processar o PDF",
+      code: "INTERNAL_ERROR",
+      details: process.env.NODE_ENV === "development" ? error.message : undefined,
     })
   }
 })
 
 // Endpoint 2: Geração do contrato PDF
-app.post("/api/generate", async (req, res) => {
+app.post("/api/generate", apiLimiter, async (req, res) => {
   let browser = null
 
   try {
     const contractData = req.body
 
-    // Validar dados obrigatórios
-    const requiredFields = ["empresa", "cnpj_empresa", "condominio", "cnpj_condominio", "valor", "data_assinatura"]
-    const missingFields = requiredFields.filter((field) => !contractData[field])
+    const validation = contractDataSchema.safeParse(contractData)
 
-    if (missingFields.length > 0) {
+    if (!validation.success) {
       return res.status(400).json({
-        error: "Campos obrigatórios faltando",
-        missing: missingFields,
+        error: "Dados inválidos",
+        code: "VALIDATION_ERROR",
+        details: validation.error.errors.map((err) => ({
+          field: err.path.join("."),
+          message: err.message,
+        })),
       })
+    }
+
+    const sanitize = (str) => {
+      if (!str) return ""
+      return str
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#x27;")
+        .replace(/\//g, "&#x2F;")
+    }
+
+    const sanitizedData = {
+      empresa: sanitize(contractData.empresa),
+      cnpj_empresa: sanitize(contractData.cnpj_empresa),
+      condominio: sanitize(contractData.condominio),
+      cnpj_condominio: sanitize(contractData.cnpj_condominio),
+      valor: sanitize(contractData.valor),
+      data_assinatura: sanitize(contractData.data_assinatura),
     }
 
     // Carregar template EJS
@@ -132,7 +261,7 @@ app.post("/api/generate", async (req, res) => {
 
     // Renderizar HTML com os dados
     const html = ejs.render(template, {
-      contract: contractData,
+      contract: sanitizedData,
       formatDate: (dateString) => {
         if (!dateString) return ""
         const date = new Date(dateString)
@@ -196,8 +325,9 @@ app.post("/api/generate", async (req, res) => {
     }
 
     res.status(500).json({
-      error: "Erro ao gerar o contrato",
-      details: error.message,
+      error: "Erro interno ao gerar o contrato",
+      code: "GENERATION_ERROR",
+      details: process.env.NODE_ENV === "development" ? error.message : undefined,
     })
   }
 })
